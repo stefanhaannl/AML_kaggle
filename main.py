@@ -2,6 +2,7 @@
 Main working directory
 """
 import preprocessing
+import visualisation
 import numpy as np
 import pandas as pd
 

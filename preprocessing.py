@@ -1,5 +1,5 @@
 """
-Preprocessing file for loading the information in a workable format.
+Preprocessing file components for loading the information in a workable format.
 """
 import numpy as np
 import pandas as pd
