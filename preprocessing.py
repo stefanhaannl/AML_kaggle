@@ -24,7 +24,8 @@ def load_images(n=0, train=True):
     path = os.path.join(DATA_PATH,path)
     for filename in os.listdir(path):
         x = np.array([np.array(Image.open(os.path.join(path,filename)))])
-        im_list.append(x)
+        gray = x[0,:,:] 
+        im_list.append(gray)
         id_im = int(filename.split('.')[0])
         label_list.append(id_im)
         n-=1
