@@ -2,11 +2,7 @@
 __pycache__/
 *.py[cod]
 *$py.class
-train/
-test/
-sample.csv
-train_onelabel.csv
-label_map.txt
+data/
 
 # Distribution / packaging
 .Python
