@@ -6,10 +6,12 @@ import pandas as pd
 import os
 from PIL import Image
 
-WORKING_PATH = os.path.abspath('')
+WORKING_PATH = os.path.dirname(os.path.abspath(__file__))
 DATA_PATH = os.path.join(WORKING_PATH,'data')
 
-def load_images(n=0,train=True):
+
+
+def load_images(n=0, train=True):
     """
     Import either test or training images into a pd.dataframe object of np.arrays (images) and label numbers
     """
@@ -40,7 +42,7 @@ def load_images(n=0,train=True):
 
 def add_labels(images, train=True):
     """
-    Transform pd.series object of np.arrays (images) into pd.series of images and text labels
+    Transform pd.dataframe object of np.arrays (images) into pd.series of images and text labels
     """
     pass
     
