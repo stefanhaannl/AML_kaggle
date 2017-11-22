@@ -2,9 +2,11 @@
 __pycache__/
 *.py[cod]
 *$py.class
-
-# C extensions
-*.so
+train/
+test/
+sample.csv
+train_onelabel.csv
+label_map.txt
 
 # Distribution / packaging
 .Python
