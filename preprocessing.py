@@ -8,6 +8,8 @@ from PIL import Image
 
 WORKING_PATH = os.path.dirname(os.path.abspath(__file__))
 DATA_PATH = os.path.join(WORKING_PATH,'data')
+TEST_PATH = os.path.join(DATA_PATH,'test')
+TRAIN_PATH = os.path.join(DATA_PATH,'train')
 
 def load_images(n=0, train=True):
     """
@@ -16,12 +18,11 @@ def load_images(n=0, train=True):
     im_list = []
     label_list = []
 
-    path = ""
     if train == True:
-        path = "train"
+        path = TRAIN_PATH
     else:
-        path = "test"
-    path = os.path.join(DATA_PATH,path)
+        path = TEST_PATH
+    
     for filename in os.listdir(path):
         x = np.array([np.array(Image.open(os.path.join(path,filename)))])
         gray = x[0,:,:] 
@@ -42,7 +43,7 @@ def add_labels(images):
     Transform pd.dataframe object of np.arrays (images) into pd.series of images and text labels
     """
     labels = pd.read_csv(os.path.join(DATA_PATH,'train_onelabel.csv'))
-    labels.columns = ['image_number','class']
+    labels.columns = ['image_number','class_id']
     labels['image_number'] = labels['image_number'].apply(lambda x:int(x.split('.')[0]))
     required_labels = labels[labels.image_number.isin(list(images['image_number']))]
     return pd.merge(images,required_labels,on='image_number')
