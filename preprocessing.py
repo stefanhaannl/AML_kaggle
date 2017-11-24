@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import os
 from PIL import Image
+from scipy.misc import imresize
 
 WORKING_PATH = os.path.dirname(os.path.abspath(__file__))
 DATA_PATH = os.path.join(WORKING_PATH,'data')
@@ -36,6 +37,19 @@ def load_images(n=0, train=True):
     data_dict = {"image_data":im_list,"image_number":label_list}
     df = pd.DataFrame(data_dict)
     return df
+
+def normalize_images(images):
+    """
+    Squeezes the image data into the average size of the image data-set. All images will be transformed into the same width and height
+    """
+    sizes = pd.DataFrame()
+    sizes['WH'] = images['image_data'].apply(lambda x: np.shape(x))
+    sizes['W'] = sizes['WH'].apply(lambda x:x[0])
+    sizes['H'] = sizes['WH'].apply(lambda x:x[1])
+    means = sizes[['W','H']].mean()
+    new_sizes = (int(round(means['W'])),int(round(means['H'])))
+    images['image_data'] = images['image_data'].apply(lambda x: imresize(x,new_sizes))
+    return images
 
 def add_labels(images):
     """
