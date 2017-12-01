@@ -29,6 +29,12 @@ class DataFile():
         batch_x = self.traindata[ind,:]
         batch_y = self.trainlabels[ind,:]
         return batch_x, batch_y
+    
+    def get_testbatch(self,batchsize):
+        ind = np.random.randint(self.testdata.shape[0],size=batchsize)
+        batch_x = self.testdata[ind,:]
+        batch_y = self.testlabels[ind,:]
+        return batch_x, batch_y
 
 
 class Network():
@@ -171,7 +177,8 @@ class Network():
                     print("Running step", step, "/",self.session_steps)
                     correct_prediction = tf.equal(tf.argmax(self.y,1), tf.argmax(self.y_true,1))
                     accuracy = tf.reduce_mean(tf.cast(correct_prediction,tf.float32))
-                    print('Accuracy:',sess.run(accuracy,feed_dict={self.x:self.datafile.testdata,self.y_true:self.datafile.testlabels,self.hold_prob:1.0}))
+                    feed_x, feed_y = self.datafile.get_testbatch(1000)
+                    print('Accuracy:',sess.run(accuracy,feed_dict={self.x:feed_x,self.y_true:feed_y,self.hold_prob:1.0}))
                     print('\n')
 
 """
