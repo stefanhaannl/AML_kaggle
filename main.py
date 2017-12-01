@@ -56,22 +56,25 @@ class Network():
         #DEFINE THE LOSS FUNCTION
         self.define_loss_function()
         
-    def set_parameters(self,session_steps=5000,batch_size=50,learning_rate=0.001):
+    def set_parameters(self,session_steps=5000,batch_size=50,learning_rate=0.001,dropout_hold_prob=0.5):
         """
         Variables:
             session_steps: (default:5000)
             batch_size: (default:50)
             learning_rate: (default: 0.001)
+            dropout_hold_prob: (default: 0.5)
         """
         self.session_steps = session_steps
         self.batch_size = batch_size
         self.learning_rate = learning_rate
+        self.dropout_hold_prob = dropout_hold_prob
         
     def initialize_structure(self):
         """
         Creates a list of layers where all layers of the model are saved. Also adds a default output layer.
         """
-        self.layers = [OutputLayer(self.datafile.inputdimension[1:],self.datafile.n_labels)]
+        self.hold_prob = tf.placeholder(tf.float32)
+        self.layers = [OutputLayer(self.datafile.inputdimension[1:],self.datafile.n_labels,self.hold_prob)]
         self.calculate_operations()
         
     def calculate_operations(self):
@@ -112,10 +115,7 @@ class Network():
             input_shape = self.datafile.inputdimension[1:]
         else:
             input_shape = self.layers[-2].outputshape
-        del self.layers[-1]
-        self.layers.append(NormLayer(input_shape,n,transfer_function))
-        self.layers.append(OutputLayer(self.layers[-1].outputshape,self.datafile.n_labels))
-        self.calculate_operations()
+        self.add_layer(NormLayer(input_shape,n,transfer_function))
         
     def layer_add_convolutional(self, channels=32, W=6, H=6, transfer_function = tf.nn.relu):
         """
@@ -129,10 +129,7 @@ class Network():
             input_shape = self.datafile.inputdimension[1:]
         else:
             input_shape = self.layers[-2].outputshape
-        del self.layers[-1]
-        self.layers.append(ConvLayer(input_shape,channels,[W,H],transfer_function))
-        self.layers.append(OutputLayer(self.layers[-1].outputshape,self.datafile.n_labels))
-        self.calculate_operations()
+        self.add_layer(ConvLayer(input_shape,channels,[W,H],transfer_function))
         
     def layer_add_pooling(self):
         """
@@ -144,9 +141,12 @@ class Network():
             input_shape = self.datafile.inputdimension[1:]
         else:
             input_shape = self.layers[-2].outputshape
+        self.add_layer(PoolLayer(input_shape))
+        
+    def add_layer(self,layer):
         del self.layers[-1]
-        self.layers.append(PoolLayer(input_shape))
-        self.layers.append(OutputLayer(self.layers[-1].outputshape,self.datafile.n_labels))
+        self.layers.append(layer)
+        self.layers.append(OutputLayer(self.layers[-1].outputshape,self.datafile.n_labels,self.hold_prob))
         self.calculate_operations()
         
     def define_loss_function(self):
@@ -166,12 +166,12 @@ class Network():
             sess.run(init)
             for step in range(self.session_steps):
                 batch_x, batch_y = self.datafile.get_batch(self.batch_size)
-                sess.run(self.trainer,feed_dict = {self.x:batch_x, self.y_true:batch_y})
+                sess.run(self.trainer,feed_dict = {self.x:batch_x, self.y_true:batch_y, self.hold_prob:self.dropout_hold_prob})
                 if step%100 == 0:
                     print("Running step", step, "/",self.session_steps)
                     correct_prediction = tf.equal(tf.argmax(self.y,1), tf.argmax(self.y_true,1))
                     accuracy = tf.reduce_mean(tf.cast(correct_prediction,tf.float32))
-                    print('Accuracy:',sess.run(accuracy,feed_dict={self.x:self.datafile.testdata,self.y_true:self.datafile.testlabels}))
+                    print('Accuracy:',sess.run(accuracy,feed_dict={self.x:self.datafile.testdata,self.y_true:self.datafile.testlabels,self.hold_prob:1.0}))
                     print('\n')
 
 """
@@ -197,7 +197,8 @@ class Layer():
     
 class OutputLayer(Layer):
     
-    def __init__(self,inputshape,outputshape):
+    def __init__(self,inputshape,outputshape,dropout):
+        self.dropout = dropout
         super().__init__(inputshape,[outputshape])
         self.inputlength = np.prod(inputshape)
         self.W = self.init_weights([self.inputlength,outputshape])
@@ -208,7 +209,8 @@ class OutputLayer(Layer):
         if len(shape) > 2:
             dim = np.prod(shape[1:])
             input_layer = tf.reshape(input_layer,[-1,dim])
-        return tf.add(tf.matmul(input_layer,self.W),self.b)
+        layer = tf.nn.dropout(input_layer,self.dropout)
+        return tf.add(tf.matmul(layer,self.W),self.b)
 
 
 class NormLayer(Layer):
@@ -237,8 +239,8 @@ class ConvLayer(Layer):
         if len(inputshape) == 2:
             self.kernel = self.size+[1]+[self.channels]
         else:
-            self.kernel = self.size+[inputshape[2]]+[inputshape[2]*self.channels]
-        outputshape = inputshape+[self.channels]
+            self.kernel = self.size+[inputshape[2]]+[inputshape[2]+self.channels]
+        outputshape = [inputshape[0],inputshape[1],self.kernel[3]]
         super().__init__(inputshape,outputshape)
         self.W = self.init_weights(self.kernel)
         self.b = self.init_bias([self.kernel[3]])
