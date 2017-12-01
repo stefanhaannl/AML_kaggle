@@ -237,20 +237,17 @@ class ConvLayer(Layer):
         if len(inputshape) == 2:
             self.kernel = self.size+[1]+[self.channels]
         else:
-            self.kernel = self.size+[inputshape[2]]+[self.channels]
+            self.kernel = self.size+[inputshape[2]]+[inputshape[2]*self.channels]
         outputshape = inputshape+[self.channels]
         super().__init__(inputshape,outputshape)
         self.W = self.init_weights(self.kernel)
         self.b = self.init_bias([self.kernel[3]])
         
     def conv2d(self,x,W):
-        #x --> [batch,H,W]
-        #W --> [filter H, filter W, Channels IN, Channels OUT]
         return tf.nn.conv2d(x,W,strides=[1,1,1,1],padding='SAME')
     
     def forward(self,input_layer):
         if len(input_layer.shape) == 3:
-            #Conversion of 3 dimensional tensor to 4 dimensional tensor
             input_layer = tf.reshape(input_layer,[-1,int(input_layer.shape[1]),int(input_layer.shape[2]),1])
         return self.tranfer_func(self.conv2d(input_layer,self.W))
     
@@ -268,6 +265,5 @@ class PoolLayer(Layer):
     
     def forward(self,input_layer):
         if len(input_layer.shape) == 3:
-            #Conversion of 3 dimensional tensor to 4 dimensional tensor
             input_layer = tf.reshape(input_layer,[-1,int(input_layer.shape[1]),int(input_layer.shape[2]),1])
         return self.max_pool_2by2(input_layer)
