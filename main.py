@@ -4,25 +4,35 @@ Main working directory
 import preprocessing
 import tensorflow as tf
 import numpy as np
+import matplotlib.pyplot as plt
 
 class DataFile():
     
-    def __init__(self,n=0):
-        self.traindata, self.trainlabels, self.testdata, self.testlabels = self.load_data(n)
-        self.inputdimension = list(self.traindata.shape)
-        self.outputdimension = list(self.trainlabels.shape)
-        self.n_labels = self.outputdimension[1]
+    def __init__(self,n=0,train=True):
+        if train == True:
+            self.traindata, self.trainlabels, self.testdata, self.testlabels = self.load_data(n)
+            self.inputdimension = list(self.traindata.shape)
+            self.outputdimension = list(self.trainlabels.shape)
+            self.n_labels = self.outputdimension[1]
+        else:
+            self.testdata, self.template, self.names = self.load_data(n,train)
+        
         
     def load_data(self,n=0,train=True):
-        df = preprocessing.load_images(n,train)
+        df, template = preprocessing.load_images(n,train)
         df = preprocessing.resize_images(df)
         if train == True:
             df = preprocessing.add_labels(df)
             df = preprocessing.add_label_hotmap(df)
-        x_train, x_test, y_train, y_test = preprocessing.split_data(df)
-        x_train = np.swapaxes(np.dstack(np.array(x_train)),0,2)
-        x_test = np.swapaxes(np.dstack(np.array(x_test)),0,2)
-        return x_train, np.array(list(y_train)), x_test, np.array(list(y_test))
+            x_train, x_test, y_train, y_test = preprocessing.split_data(df)
+            x_train = np.swapaxes(np.dstack(np.array(x_train)),0,2)
+            x_test = np.swapaxes(np.dstack(np.array(x_test)),0,2)
+            return x_train, np.array(list(y_train)), x_test, np.array(list(y_test))
+        else:
+            x_train = df['image_data']
+            names = np.array(list(df['image_number']))
+            x_train = np.swapaxes(np.dstack(np.array(x_train)),0,2)
+            return x_train, template, names
     
     def get_batch(self,batchsize):
         ind = np.random.randint(self.traindata.shape[0],size=batchsize)
@@ -49,38 +59,30 @@ class Network():
         """
         Creates a Neural network with tensorflow, specify a DataFile object.
         """
-        #LOAD THE DATA
         self.datafile = datafile
-        self.datalength = self.datafile.inputdimension[0]
-        #SET PARAMETERS
         self.set_parameters()
-        #DEFINE PLACEHOLDERS
-        self.x = tf.placeholder(tf.float32,[None]+self.datafile.inputdimension[1:])
-        self.y_true = tf.placeholder(tf.float32,[None]+self.datafile.outputdimension[1:])
-        #BUILD THE BODY OF THE NEURAL NETWORK
         self.initialize_structure()
-        #DEFINE THE LOSS FUNCTION
-        self.define_loss_function()
         
-    def set_parameters(self,session_steps=5000,batch_size=50,learning_rate=0.001,dropout_hold_prob=0.5):
+    def set_parameters(self,session_steps=2000,batch_size=50,learning_rate=0.002):
         """
         Variables:
             session_steps: (default:5000)
             batch_size: (default:50)
             learning_rate: (default: 0.001)
-            dropout_hold_prob: (default: 0.5)
         """
         self.session_steps = session_steps
         self.batch_size = batch_size
         self.learning_rate = learning_rate
-        self.dropout_hold_prob = dropout_hold_prob
+        self.mode = ['TRAIN']
         
     def initialize_structure(self):
         """
         Creates a list of layers where all layers of the model are saved. Also adds a default output layer.
         """
+        self.x = tf.placeholder(tf.float32,[None]+self.datafile.inputdimension[1:])
+        self.y_true = tf.placeholder(tf.float32,[None]+self.datafile.outputdimension[1:])
         self.hold_prob = tf.placeholder(tf.float32)
-        self.layers = [OutputLayer(self.datafile.inputdimension[1:],self.datafile.n_labels,self.hold_prob)]
+        self.layers = [InputLayer(self.datafile.inputdimension[1:])]
         self.calculate_operations()
         
     def calculate_operations(self):
@@ -90,38 +92,36 @@ class Network():
         self.y = self.x
         for layer in self.layers:
             self.y = layer.forward(self.y)
-        self.define_loss_function()
         print('The model has been changed, an overview from input to output:\n\n')
         self.print_model()
+        if layer.outputshape == self.datafile.outputdimension[1:]:
+            self.define_loss_function()
+            print('This model can now be trained!')
+        else:
+            print('This model cannot be trained yet!')
             
     def print_model(self):
         """
         Prints the structure of the current model to the console.
         """
         for layer in self.layers:
-            if isinstance(layer,NormLayer):
-                print('Layer: Normal Fully Connected (Nodes:',layer.nodes,', Transfer Function:',layer.transfer_func,')')
+            if isinstance(layer, InputLayer):
+                print('Layer: Input Images')
             elif isinstance(layer,ConvLayer):
-                print('Layer: Convolutional (Kernel Chanels:',layer.channels,', Kernel Size:',layer.size,', Transfer Function:',layer.tranfer_func,')')
+                print('Layer: Convolutional (Kernel Chanels:',layer.channels,', Kernel Size:',layer.size,', Transfer Function:',layer.transfer_func,')')
             elif isinstance(layer,PoolLayer):
-                print('Layer: Pooling /2')
-            else:
-                print('Layer: Output Fully Connected')
-            print('Input shape: ',layer.inputshape)
-            print('Output shape: ',layer.outputshape)
+                print('Layer: Pooling (Size:',layer.size,')')
+            elif isinstance(layer,FlattenLayer):
+                print('Layer: Flatten')
+            elif isinstance(layer,DenseLayer):
+                print('Layer: Dense (Nodes:',layer.nodes,', Transfer Function:',layer.transfer_func,')')
+            elif isinstance(layer,DropoutLayer):
+                print('Layer: Dropout (Rate:',layer.rate,')')
+            elif isinstance(layer,Layer):
+                print('Layer: Output Logits')
+            print('Input Shape: ',layer.inputshape)
+            print('Output Shape: ',layer.outputshape)
             print('\n')
-        
-    def layer_add_normal(self,n=1024,transfer_function = tf.nn.relu):
-        """
-        Adds a normal fully connected layer, specify the layer parameters:
-            n: The number of neurons in the layer (default: 1024)
-            transfer_func: The tranfer function used for the layer (default: tf.nn.relu)
-        """
-        if len(self.layers) == 1:
-            input_shape = self.datafile.inputdimension[1:]
-        else:
-            input_shape = self.layers[-2].outputshape
-        self.add_layer(NormLayer(input_shape,n,transfer_function))
         
     def layer_add_convolutional(self, channels=32, W=6, H=6, transfer_function = tf.nn.relu):
         """
@@ -129,30 +129,38 @@ class Network():
             channels: The number of output channels (default: 32)
             W: The width of the kernel (default: 6)
             H: The height of the kernel (default: 6)
-            transfer_func: The transfer function used for the layer (default: tf.nn.relu)
+            transfer_function: The transfer function used for the layer (default: tf.nn.relu)
         """
-        if len(self.layers) == 1:
-            input_shape = self.datafile.inputdimension[1:]
-        else:
-            input_shape = self.layers[-2].outputshape
-        self.add_layer(ConvLayer(input_shape,channels,[W,H],transfer_function))
+        self.layers.append(ConvLayer(self.layers[-1].outputshape,channels,[W,H],transfer_function))
+        self.calculate_operations()
         
-    def layer_add_pooling(self):
+    def layer_add_pooling(self,size=2):
         """
         Adds a pooling layer, specify the layer parameters:
-            SIZE CANNOT BE SPECIFIED YET
-            CURRENT SIZE IS 2 (A SPLIT OF N/2)
+            Size: The size of the pooling (default: 2)
         """
-        if len(self.layers) == 1:
-            input_shape = self.datafile.inputdimension[1:]
-        else:
-            input_shape = self.layers[-2].outputshape
-        self.add_layer(PoolLayer(input_shape))
+        self.layers.append(PoolLayer(self.layers[-1].outputshape,size))
+        self.calculate_operations()
         
-    def add_layer(self,layer):
-        del self.layers[-1]
-        self.layers.append(layer)
-        self.layers.append(OutputLayer(self.layers[-1].outputshape,self.datafile.n_labels,self.hold_prob))
+    def layer_add_flatten(self):
+        self.layers.append(FlattenLayer(self.layers[-1].outputshape))
+        self.calculate_operations()
+        
+    def layer_add_dense(self,nodes=1024,transfer_function = tf.nn.relu):
+        """
+        Adds a normal fully connected layer, specify the layer parameters:
+            nodes: The number of neurons in the layer (default: 1024)
+            transfer_func: The tranfer function used for the layer (default: tf.nn.tanh)
+        """
+        self.layers.append(DenseLayer(self.layers[-1].outputshape,nodes,transfer_function))
+        self.calculate_operations()
+        
+    def layer_add_dropout(self,rate=0.4):
+        self.layers.append(DropoutLayer(self.layers[-1].outputshape,rate,self.mode))
+        self.calculate_operations()
+        
+    def layer_add_output(self):
+        self.layers.append(Layer(self.layers[-1].outputshape,[self.datafile.outputdimension[1]]))
         self.calculate_operations()
         
     def define_loss_function(self):
@@ -165,22 +173,43 @@ class Network():
     
     def train(self):
         """
-        Train the current model and evaluate it on the testing data.
+        Train the current model and evaluate it on the testing data split.
         """
         init = tf.global_variables_initializer()
         with tf.Session() as sess:
             sess.run(init)
+            x = np.linspace(0,self.session_steps/100,self.session_steps/100)
+            y = []
             for step in range(self.session_steps):
                 batch_x, batch_y = self.datafile.get_batch(self.batch_size)
-                sess.run(self.trainer,feed_dict = {self.x:batch_x, self.y_true:batch_y, self.hold_prob:self.dropout_hold_prob})
+                sess.run(self.trainer,feed_dict = {self.x:batch_x, self.y_true:batch_y})
                 if step%100 == 0:
                     print("Running step", step, "/",self.session_steps)
                     correct_prediction = tf.equal(tf.argmax(self.y,1), tf.argmax(self.y_true,1))
                     accuracy = tf.reduce_mean(tf.cast(correct_prediction,tf.float32))
                     feed_x, feed_y = self.datafile.get_testbatch(1000)
-                    print('Accuracy:',sess.run(accuracy,feed_dict={self.x:feed_x,self.y_true:feed_y,self.hold_prob:1.0}))
+                    self.mode[0] = 'TEST'
+                    accuracy = sess.run(accuracy,feed_dict={self.x:feed_x,self.y_true:feed_y})
+                    self.mode[0] = 'TRAIN'
+                    y.append(accuracy)
+                    print('Accuracy:',accuracy)
                     print('\n')
-
+        y = np.array(y)
+        plt.plot(x,y)
+        plt.ylabel("Accuracy")
+        plt.xlabel("Iteration")
+        return y
+    
+    def evaluate(self,datafile):
+        print('Mode variable set to: EVAL')
+        self.mode[0] = 'EVAL' 
+        with tf.Session() as sess:
+            labels = sess.run(tf.argmax(self.y,axis=1), feed_dict={self.x:datafile.testdata})
+            self.evaluated_data = labels
+        print("The model has been evaluated on the test data an has been exported to CSV format.")
+        print('Mode set back to: TRAIN')
+        self.mode[0] = 'TRAIN'
+        
 """
 ###############################################################################
 MODEL COMPONENTS
@@ -193,86 +222,89 @@ class Layer():
         self.inputshape = inputshape
         self.outputshape = outputshape
     
-    def init_weights(self,shape):
-        init_random_dist = tf.truncated_normal(shape,stddev=1/np.prod(shape))
-        return tf.Variable(init_random_dist)
-    
-    def init_bias(self,shape):
-        init_bias_vals = tf.truncated_normal(shape,stddev=1/np.prod(shape))
-        return tf.Variable(init_bias_vals)
-    
-    
-class OutputLayer(Layer):
-    
-    def __init__(self,inputshape,outputshape,dropout):
-        self.dropout = dropout
-        super().__init__(inputshape,[outputshape])
-        self.inputlength = np.prod(inputshape)
-        self.W = self.init_weights([self.inputlength,outputshape])
-        self.b = self.init_bias([outputshape])
-    
     def forward(self,input_layer):
-        shape = input_layer.get_shape().as_list()
-        if len(shape) > 2:
-            dim = np.prod(shape[1:])
-            input_layer = tf.reshape(input_layer,[-1,dim])
-        layer = tf.nn.dropout(input_layer,self.dropout)
-        return tf.add(tf.matmul(layer,self.W),self.b)
+        return tf.layers.dense(
+                inputs = input_layer,
+                units = self.outputshape[0])
 
-
-class NormLayer(Layer):
-    def __init__(self,inputshape,n=1024,transfer_func=tf.nn.relu):
-        super().__init__(inputshape,[n])
-        self.nodes = n
-        self.transfer_func = transfer_func
-        self.inputlength = np.prod(inputshape)
-        self.W = self.init_weights([self.inputlength,n])
-        self.b = self.init_bias([n])
-        
-    def forward(self,input_layer):
-        shape = input_layer.get_shape().as_list()
-        if len(shape) > 2:
-            dim = np.prod(shape[1:])
-            input_layer = tf.reshape(input_layer,[-1,dim])
-        return self.transfer_func(tf.add(tf.matmul(input_layer,self.W),self.b))
-
-
-class ConvLayer(Layer):
-    
-    def __init__(self,inputshape,channels,size,tranfer_func=tf.nn.relu):
-        self.channels = channels
-        self.size = size
-        self.tranfer_func = tranfer_func
-        if len(inputshape) == 2:
-            self.kernel = self.size+[1]+[self.channels]
-        else:
-            self.kernel = self.size+[inputshape[2]]+[inputshape[2]+self.channels]
-        outputshape = [inputshape[0],inputshape[1],self.kernel[3]]
-        super().__init__(inputshape,outputshape)
-        self.W = self.init_weights(self.kernel)
-        self.b = self.init_bias([self.kernel[3]])
-        
-    def conv2d(self,x,W):
-        return tf.nn.conv2d(x,W,strides=[1,1,1,1],padding='SAME')
-    
-    def forward(self,input_layer):
-        if len(input_layer.shape) == 3:
-            input_layer = tf.reshape(input_layer,[-1,int(input_layer.shape[1]),int(input_layer.shape[2]),1])
-        return self.tranfer_func(self.conv2d(input_layer,self.W))
-    
-
-class PoolLayer(Layer):
+class InputLayer(Layer):
     
     def __init__(self,inputshape):
-        outputshape = inputshape[:]
-        outputshape[0] = int(np.ceil(outputshape[0]/2))
-        outputshape[1] = int(np.ceil(outputshape[1]/2))
+        outputshape = inputshape + [1]
         super().__init__(inputshape,outputshape)
     
-    def max_pool_2by2(self,x):
-        return tf.nn.max_pool(x,ksize=[1,2,2,1],strides=[1,2,2,1],padding='SAME')
+    def forward(self,input_layer):
+        return tf.reshape(input_layer,[-1]+self.outputshape)
+    
+    
+class ConvLayer(Layer):
+    
+    def __init__(self,inputshape,channels,size,transfer_func):
+        outputshape = inputshape[0:2]+[channels]
+        super().__init__(inputshape,outputshape)
+        self.channels = channels
+        self.size = size
+        self.transfer_func = transfer_func
+        
+    def forward(self,input_layer):
+        return tf.layers.conv2d(
+                inputs = input_layer,
+                filters = self.channels,
+                kernel_size = self.size,
+                padding = 'same',
+                activation = self.transfer_func)
+    
+    
+class PoolLayer(Layer):
+    
+    def __init__(self,inputshape,size):
+        outputshape = inputshape[:]
+        outputshape[0] = int(round(outputshape[0]/size))
+        outputshape[1] = int(round(outputshape[1]/size))
+        super().__init__(inputshape,outputshape)
+        self.size = size
+        
+    def forward(self,input_layer):
+        return tf.layers.max_pooling2d(
+                inputs = input_layer,
+                pool_size = [self.size,self.size],
+                strides = self.size)
+        
+
+class FlattenLayer(Layer):
+    
+    def __init__(self,inputshape):
+        outputshape = [np.prod(inputshape)]
+        super().__init__(inputshape,outputshape)
+        
+    def forward(self,input_layer):
+        return tf.reshape(input_layer,[-1]+self.outputshape)
+    
+    
+class DenseLayer(Layer):
+    
+    def __init__(self,inputshape,nodes=1024,transfer_func=tf.nn.relu):
+        super().__init__(inputshape,[nodes])
+        self.nodes = nodes
+        self.transfer_func = transfer_func
+        
+    def forward(self,input_layer):
+        return tf.layers.dense(
+                inputs=input_layer,
+                units = self.nodes,
+                activation = self.transfer_func)
+
+
+class DropoutLayer(Layer):
+    
+    def __init__(self,inputshape,rate,mode):
+        super().__init__(inputshape,inputshape)
+        self.rate = 0.5
+        self.mode = mode
     
     def forward(self,input_layer):
-        if len(input_layer.shape) == 3:
-            input_layer = tf.reshape(input_layer,[-1,int(input_layer.shape[1]),int(input_layer.shape[2]),1])
-        return self.max_pool_2by2(input_layer)
+        return tf.layers.dropout(
+                inputs = input_layer,
+                rate = self.rate,
+                training = self.mode[0] == 'TRAIN' )
+        

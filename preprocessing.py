@@ -41,9 +41,14 @@ def load_images(n=0, train=True):
         n-=1
         if n == 0:
             break
+    if train == False:
+        template = pd.read_csv(os.path.join(DATA_PATH, 'sample.csv'))
     data_dict = {"image_data":im_list,"image_number":label_list}
     df = pd.DataFrame(data_dict)
-    return df
+    if train == True:
+        return df,1 
+    else:
+        return df, template
 
 def resize_images(images):
     """
@@ -51,12 +56,7 @@ def resize_images(images):
     [image_data] -> [image_data]
     """
     print("Resizing the images...")
-    sizes = pd.DataFrame()
-    sizes['WH'] = images['image_data'].apply(lambda x: np.shape(x))
-    sizes['W'] = sizes['WH'].apply(lambda x:x[0])
-    sizes['H'] = sizes['WH'].apply(lambda x:x[1])
-    means = sizes[['W','H']].mean()
-    new_sizes = (int(round(means['W'])),int(round(means['H'])))
+    new_sizes = (66,73)
     images['image_data'] = images['image_data'].apply(lambda x: imresize(x,new_sizes))
     images['image_data'] = images['image_data'].apply(lambda x: minmax_scale(x).astype(np.float32))
     return images
