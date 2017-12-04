@@ -63,7 +63,7 @@ class Network():
         self.set_parameters()
         self.initialize_structure()
         
-    def set_parameters(self,session_steps=2000,batch_size=50,learning_rate=0.5):
+    def set_parameters(self,session_steps=2000,batch_size=50,learning_rate=0.002):
         """
         Variables:
             session_steps: (default:5000)
@@ -73,7 +73,6 @@ class Network():
         self.session_steps = session_steps
         self.batch_size = batch_size
         self.learning_rate = learning_rate
-        self.mode = ['TRAIN']
         
     def initialize_structure(self):
         """
@@ -81,6 +80,7 @@ class Network():
         """
         self.x = tf.placeholder(tf.float32,[None]+self.datafile.inputdimension[1:])
         self.y_true = tf.placeholder(tf.float32,[None]+self.datafile.outputdimension[1:])
+        self.train_mode = tf.placeholder(tf.bool)
         self.hold_prob = tf.placeholder(tf.float32)
         self.layers = [InputLayer(self.datafile.inputdimension[1:])]
         self.calculate_operations()
@@ -131,37 +131,52 @@ class Network():
             H: The height of the kernel (default: 6)
             transfer_function: The transfer function used for the layer (default: tf.nn.relu)
         """
-        self.layers.append(ConvLayer(self.layers[-1].outputshape,channels,[W,H],transfer_function))
-        self.calculate_operations()
+        if len(self.layers[-1].outputshape) == 3:
+            self.layers.append(ConvLayer(self.layers[-1].outputshape,channels,[W,H],transfer_function))
+            self.calculate_operations()
+        else:
+            print("Cannot add another convolutional layer once the image is flattened!")
         
     def layer_add_pooling(self,size=2):
         """
         Adds a pooling layer, specify the layer parameters:
             Size: The size of the pooling (default: 2)
         """
-        self.layers.append(PoolLayer(self.layers[-1].outputshape,size))
-        self.calculate_operations()
+        if len(self.layers[-1].outputshape) == 3:
+            self.layers.append(PoolLayer(self.layers[-1].outputshape,size))
+            self.calculate_operations()
+        else:
+            print("Cannot add another pooling layer once the image is flattened!")
         
     def layer_add_flatten(self):
-        self.layers.append(FlattenLayer(self.layers[-1].outputshape))
-        self.calculate_operations()
-        
+        if len(self.layers[-1].outputshape) != 1:
+            self.layers.append(FlattenLayer(self.layers[-1].outputshape))
+            self.calculate_operations()
+        else:
+            print('The data is already flattened into one dimension!')
+            
     def layer_add_dense(self,nodes=1024,transfer_function = tf.nn.relu):
         """
         Adds a normal fully connected layer, specify the layer parameters:
             nodes: The number of neurons in the layer (default: 1024)
             transfer_func: The tranfer function used for the layer (default: tf.nn.tanh)
         """
-        self.layers.append(DenseLayer(self.layers[-1].outputshape,nodes,transfer_function))
-        self.calculate_operations()
+        if len(self.layers[-1].outputshape) == 1:
+            self.layers.append(DenseLayer(self.layers[-1].outputshape,nodes,transfer_function))
+            self.calculate_operations()
+        else:
+            print("A dense layer requires flattening first!")
         
     def layer_add_dropout(self,rate=0.5):
-        self.layers.append(DropoutLayer(self.layers[-1].outputshape,rate,self.mode))
+        self.layers.append(DropoutLayer(self.layers[-1].outputshape,rate,self.train_mode))
         self.calculate_operations()
         
     def layer_add_output(self):
-        self.layers.append(Layer(self.layers[-1].outputshape,[self.datafile.outputdimension[1]]))
-        self.calculate_operations()
+        if len(self.layers[-1].outputshape) == 1:
+            self.layers.append(Layer(self.layers[-1].outputshape,[self.datafile.outputdimension[1]]))
+            self.calculate_operations()
+        else:
+            print("An output layer requires flattening first!")
         
     def define_loss_function(self):
         """
@@ -183,32 +198,28 @@ class Network():
             y2 = []
             for step in range(self.session_steps):
                 batch_x, batch_y = self.datafile.get_batch(self.batch_size)
-                sess.run(self.trainer,feed_dict = {self.x:batch_x, self.y_true:batch_y})
+                sess.run(self.trainer,feed_dict = {self.x:batch_x, self.y_true:batch_y, self.train_mode:True})
                 if step%100 == 0:
                     print("Running step", step, "/",self.session_steps)
                     #TEST DATA PREDICTION
-                    self.mode[0] = 'TEST'
                     correct_prediction = tf.equal(tf.argmax(self.y,1), tf.argmax(self.y_true,1))
                     accuracy = tf.reduce_mean(tf.cast(correct_prediction,tf.float32))
                     feed_x, feed_y = self.datafile.get_testbatch(1000)
-                    accuracy_test = sess.run(accuracy,feed_dict={self.x:feed_x,self.y_true:feed_y})
+                    accuracy_test = sess.run(accuracy,feed_dict={self.x:feed_x,self.y_true:feed_y,self.train_mode:False})
                     y.append(accuracy_test)
                     #TRAIN DATA PREDICTION
                     feed_x, feed_y = self.datafile.get_batch(1000)
                     correct_prediction = tf.equal(tf.argmax(self.y,1), tf.argmax(self.y_true,1))
                     accuracy = tf.reduce_mean(tf.cast(correct_prediction,tf.float32))
-                    accuracy_train = sess.run(accuracy,feed_dict={self.x:feed_x,self.y_true:feed_y})
+                    accuracy_train = sess.run(accuracy,feed_dict={self.x:feed_x,self.y_true:feed_y,self.train_mode:False})
                     y2.append(accuracy_train)
-                    self.mode[0] = 'TRAIN'
                     print('Training Accuracy:',accuracy_train)
                     print('Testing Accuracy:',accuracy_test)
                     print('\n')
             print('Applying the model on the evaluatation data...')
-            self.mode[0] = 'EVAL' 
-            labels = sess.run(tf.argmax(self.y,axis=1), feed_dict={self.x:self.datafile.evaldata})
+            labels = sess.run(tf.argmax(self.y,axis=1), feed_dict={self.x:self.datafile.evaldata,self.train_mode:False})
             self.evaluated_data = labels
             print("Done!")
-            self.mode[0] = 'TRAIN'
         y = np.array(y)
         y2 = np.array(y2)
         plt.plot(x,y,'b',x,y2,'r')
@@ -315,14 +326,22 @@ class DenseLayer(Layer):
 
 class DropoutLayer(Layer):
     
-    def __init__(self,inputshape,rate,mode):
+    def __init__(self,inputshape,rate,train):
         super().__init__(inputshape,inputshape)
         self.rate = 0.5
-        self.mode = mode
+        self.train = train
     
     def forward(self,input_layer):
         return tf.layers.dropout(
                 inputs = input_layer,
                 rate = self.rate,
-                training = self.mode[0] == 'TRAIN' )
+                training = self.train )
         
+NN = Network(data)
+NN.layer_add_convolutional()
+NN.layer_add_pooling()
+NN.layer_add_flatten()
+NN.layer_add_dropout()
+NN.layer_add_dense()
+NN.layer_add_dropout()
+NN.layer_add_output()
