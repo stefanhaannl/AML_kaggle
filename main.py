@@ -63,7 +63,7 @@ class Network():
         self.set_parameters()
         self.initialize_structure()
         
-    def set_parameters(self,session_steps=2000,batch_size=50,learning_rate=0.002):
+    def set_parameters(self,session_steps=2000,batch_size=50,learning_rate=0.5):
         """
         Variables:
             session_steps: (default:5000)
@@ -180,19 +180,28 @@ class Network():
             sess.run(init)
             x = np.linspace(0,self.session_steps/100,self.session_steps/100)
             y = []
+            y2 = []
             for step in range(self.session_steps):
                 batch_x, batch_y = self.datafile.get_batch(self.batch_size)
                 sess.run(self.trainer,feed_dict = {self.x:batch_x, self.y_true:batch_y})
                 if step%100 == 0:
                     print("Running step", step, "/",self.session_steps)
+                    #TEST DATA PREDICTION
+                    self.mode[0] = 'TEST'
                     correct_prediction = tf.equal(tf.argmax(self.y,1), tf.argmax(self.y_true,1))
                     accuracy = tf.reduce_mean(tf.cast(correct_prediction,tf.float32))
                     feed_x, feed_y = self.datafile.get_testbatch(1000)
-                    self.mode[0] = 'TEST'
-                    accuracy = sess.run(accuracy,feed_dict={self.x:feed_x,self.y_true:feed_y})
+                    accuracy_test = sess.run(accuracy,feed_dict={self.x:feed_x,self.y_true:feed_y})
+                    y.append(accuracy_test)
+                    #TRAIN DATA PREDICTION
+                    feed_x, feed_y = self.datafile.get_batch(1000)
+                    correct_prediction = tf.equal(tf.argmax(self.y,1), tf.argmax(self.y_true,1))
+                    accuracy = tf.reduce_mean(tf.cast(correct_prediction,tf.float32))
+                    accuracy_train = sess.run(accuracy,feed_dict={self.x:feed_x,self.y_true:feed_y})
+                    y2.append(accuracy_train)
                     self.mode[0] = 'TRAIN'
-                    y.append(accuracy)
-                    print('Accuracy:',accuracy)
+                    print('Training Accuracy:',accuracy_train)
+                    print('Testing Accuracy:',accuracy_test)
                     print('\n')
             print('Applying the model on the evaluatation data...')
             self.mode[0] = 'EVAL' 
@@ -201,9 +210,11 @@ class Network():
             print("Done!")
             self.mode[0] = 'TRAIN'
         y = np.array(y)
-        plt.plot(x,y)
+        y2 = np.array(y2)
+        plt.plot(x,y,'b',x,y2,'r')
         plt.ylabel("Accuracy")
         plt.xlabel("Iteration")
+        plt.title('Train: Red, Test: Blue')
         
     def export_csv(self,name):
         """
