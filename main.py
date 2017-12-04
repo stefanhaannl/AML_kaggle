@@ -5,18 +5,18 @@ import preprocessing
 import tensorflow as tf
 import numpy as np
 import matplotlib.pyplot as plt
+import pandas as pd
+import os
 
 class DataFile():
     
-    def __init__(self,n=0,train=True):
-        if train == True:
-            self.traindata, self.trainlabels, self.testdata, self.testlabels = self.load_data(n)
-            self.inputdimension = list(self.traindata.shape)
-            self.outputdimension = list(self.trainlabels.shape)
-            self.n_labels = self.outputdimension[1]
-        else:
-            self.testdata, self.template, self.names = self.load_data(n,train)
-        
+    def __init__(self,n=0):
+        self.traindata, self.trainlabels, self.testdata, self.testlabels = self.load_data(n)
+        self.inputdimension = list(self.traindata.shape)
+        self.outputdimension = list(self.trainlabels.shape)
+        self.n_labels = self.outputdimension[1]
+        self.evaldata, self.template, self.names = self.load_data(n,False)
+        del self.template['class']
         
     def load_data(self,n=0,train=True):
         df, template = preprocessing.load_images(n,train)
@@ -155,7 +155,7 @@ class Network():
         self.layers.append(DenseLayer(self.layers[-1].outputshape,nodes,transfer_function))
         self.calculate_operations()
         
-    def layer_add_dropout(self,rate=0.4):
+    def layer_add_dropout(self,rate=0.5):
         self.layers.append(DropoutLayer(self.layers[-1].outputshape,rate,self.mode))
         self.calculate_operations()
         
@@ -194,21 +194,28 @@ class Network():
                     y.append(accuracy)
                     print('Accuracy:',accuracy)
                     print('\n')
+            print('Applying the model on the evaluatation data...')
+            self.mode[0] = 'EVAL' 
+            labels = sess.run(tf.argmax(self.y,axis=1), feed_dict={self.x:self.datafile.evaldata})
+            self.evaluated_data = labels
+            print("Done!")
+            self.mode[0] = 'TRAIN'
         y = np.array(y)
         plt.plot(x,y)
         plt.ylabel("Accuracy")
         plt.xlabel("Iteration")
-        return y
-    
-    def evaluate(self,datafile):
-        print('Mode variable set to: EVAL')
-        self.mode[0] = 'EVAL' 
-        with tf.Session() as sess:
-            labels = sess.run(tf.argmax(self.y,axis=1), feed_dict={self.x:datafile.testdata})
-            self.evaluated_data = labels
-        print("The model has been evaluated on the test data an has been exported to CSV format.")
-        print('Mode set back to: TRAIN')
-        self.mode[0] = 'TRAIN'
+        
+    def export_csv(self,name):
+        """
+        Export the evaluated data labels to the required kaggle CSV format
+        """
+        df = pd.DataFrame({'image_number':self.datafile.names,'class':self.evaluated_data})
+        df2 = self.datafile.template
+        df2['image_number'] = df2['image'].apply(lambda x: int(x.split('.')[0]))
+        finaldf = pd.merge(df2,df,how='inner',on='image_number')
+        del finaldf['image_number']
+        finaldf.to_csv(os.path.join(preprocessing.DATA_PATH,name), index=False)
+
         
 """
 ###############################################################################
