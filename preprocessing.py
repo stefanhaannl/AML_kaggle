@@ -94,7 +94,7 @@ def add_label_hotmap(images):
     [class_id] -> [class_hotmap]
     """
     print('Creating an output hotmap...')
-    n = max(images['class_id'])
+    n = max(images['class_id'])+1
     images['class_hotmap'] = images['class_id'].apply(lambda x: hotmap(x,n))
     return images
 
@@ -103,7 +103,7 @@ def hotmap(loc, n):
     Function for turing a single row of class_id table into a hotmap
     """
     lst = np.zeros(n, dtype=np.float32)
-    lst[loc-1] = 1
+    lst[loc] = 1
     return lst
 
 def split_data(images, p = 0.3):
