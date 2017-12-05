@@ -8,11 +8,15 @@ from PIL import Image
 from scipy.misc import imresize
 from sklearn.preprocessing import minmax_scale
 from sklearn.model_selection import train_test_split
+from keras.preprocessing.image import ImageDataGenerator
+from matplotlib import pyplot
+from skimage.transform import resize
 
 WORKING_PATH = os.path.dirname(os.path.abspath(__file__))
 DATA_PATH = os.path.join(WORKING_PATH,'data')
 TEST_PATH = os.path.join(DATA_PATH,'test')
 TRAIN_PATH = os.path.join(DATA_PATH,'train')
+AUGMENTATION_PATH = os.path.join(DATA_PATH,'augmentations')
 
 """
 ###############################################################################
@@ -20,7 +24,7 @@ REQUIRED PART
 ###############################################################################
 """
 
-def load_images(n=0, train=True):
+def load_images(n=0, train=True, size=(64,64)):
     """
     Import either test or training images into a pd.dataframe object of np.arrays (images) and image numbers
     [] -> [image_data, image_number]
@@ -33,9 +37,25 @@ def load_images(n=0, train=True):
     else:
         path = TEST_PATH
     for filename in os.listdir(path):
-        x = np.array([np.array(Image.open(os.path.join(path,filename)))])
+        im = Image.open(os.path.join(path,filename))
+        im.thumbnail(size, Image.ANTIALIAS)
+        x = np.array([np.array(im)])
         gray = x[0,:,:] 
-        im_list.append(gray)
+        old_size = gray.shape
+        if (size[0]-old_size[0]) % 2 == 0:
+            pad1 = int((size[0]-old_size[0])/2)
+            pad2 = pad1
+        else:
+            pad1 = int(np.floor((size[0]-old_size[0])/2))
+            pad2 = pad1+1
+        if (size[1]-old_size[1]) % 2 == 0:
+            pad3 = int((size[1]-old_size[1])/2)
+            pad4 = pad3
+        else:
+            pad3 = int(np.floor((size[1]-old_size[1])/2))
+            pad4 = pad3+1
+        newimg = np.lib.pad(gray,((pad1,pad2),(pad3,pad4)),mode='constant',constant_values = ((255,255),(255,255)))
+        im_list.append(newimg.astype(np.float32))
         id_im = int(filename.split('.')[0])
         label_list.append(id_im)
         n-=1
@@ -45,20 +65,13 @@ def load_images(n=0, train=True):
         template = pd.read_csv(os.path.join(DATA_PATH, 'sample.csv'))
     data_dict = {"image_data":im_list,"image_number":label_list}
     df = pd.DataFrame(data_dict)
+    df['image_data'] = df['image_data'].apply(lambda x: x/x.max())
     if train == True:
         return df,1 
     else:
         return df, template
-
+    
 def resize_images(images):
-    """
-    Squeezes the image data into the average size of the image data-set. All images will be transformed into the same width and height.
-    [image_data] -> [image_data]
-    """
-    print("Resizing the images...")
-    new_sizes = (66,73)
-    images['image_data'] = images['image_data'].apply(lambda x: imresize(x,new_sizes))
-    images['image_data'] = images['image_data'].apply(lambda x: minmax_scale(x).astype(np.float32))
     return images
 
 def add_labels(images):
@@ -114,3 +127,27 @@ def split_data(images, p = 0.3):
     labels = images['class_hotmap']
     x_train, x_test, y_train, y_test = train_test_split(x_data, labels, test_size=p)
     return x_train, x_test, y_train, y_test
+
+"""
+###############################################################################
+KERAS
+###############################################################################
+"""
+
+def get_augment(x_train, y_train, max_loops, batch_size):
+    x_train = x_train.reshape(x_train.shape[0],x_train.shape[1],x_train.shape[2],1)
+    datagen = ImageDataGenerator(rotation_range =  180, horizontal_flip= True, vertical_flip = True, fill_mode='nearest')
+    datagen.fit(x_train)
+    cur_loop = 0
+    output_x = x_train
+    output_y = y_train
+    for x_batch, y_batch in datagen.flow(x_train, y_train, batch_size=batch_size):
+    #reate a grid of 3x3 images
+        output_x = np.concatenate((output_x,x_batch))
+        output_y = np.concatenate((output_y,y_batch))
+        cur_loop += 1
+        if cur_loop >= max_loops:
+            break
+    return output_x ,output_y
+            
+        
