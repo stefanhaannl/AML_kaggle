@@ -343,16 +343,3 @@ class DropoutLayer(Layer):
                 inputs = input_layer,
                 rate = self.rate,
                 training = self.train )
-
-
-NN = Network(data)
-NN.layer_add_convolutional(32,6,6)
-NN.layer_add_pooling()
-NN.layer_add_convolutional(32,4,4)
-NN.layer_add_pooling()
-NN.layer_add_convolutional(32,2,2)
-NN.layer_add_pooling()
-NN.layer_add_flatten()
-NN.layer_add_dense()
-NN.layer_add_output()
-NN.train()
