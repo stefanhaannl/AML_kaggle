@@ -5,12 +5,8 @@ import numpy as np
 import pandas as pd
 import os
 from PIL import Image
-from scipy.misc import imresize
-from sklearn.preprocessing import minmax_scale
 from sklearn.model_selection import train_test_split
 from keras.preprocessing.image import ImageDataGenerator
-from matplotlib import pyplot
-from skimage.transform import resize
 
 WORKING_PATH = os.path.dirname(os.path.abspath(__file__))
 DATA_PATH = os.path.join(WORKING_PATH,'data')
