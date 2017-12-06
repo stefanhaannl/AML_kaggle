@@ -346,6 +346,7 @@ class DropoutLayer(Layer):
                 inputs = input_layer,
                 rate = self.rate,
                 training = self.train )
+<<<<<<< HEAD
 
 class MaxoutLayer(Layer):
     
@@ -360,3 +361,5 @@ class MaxoutLayer(Layer):
         else:
             raise ValueError("Output size or input tensor size is not fine. Please check it. Reminder need be zero.")
         
+=======
+>>>>>>> 6130cff98abf6defece1597bb8bde0d18bbcccf6
