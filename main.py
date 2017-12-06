@@ -124,6 +124,8 @@ class Network():
                 print('Layer: Dense (Nodes:',layer.nodes,', Transfer Function:',layer.transfer_func,')')
             elif isinstance(layer,DropoutLayer):
                 print('Layer: Dropout (Rate:',layer.rate,')')
+            elif isinstance(layer,MaxoutLayer):
+                print('Layer: Maxout')
             elif isinstance(layer,Layer):
                 print('Layer: Output Logits')
             print('Input Shape: ',layer.inputshape)
@@ -184,6 +186,10 @@ class Network():
             self.calculate_operations()
         else:
             print("An output layer requires flattening first!")
+            
+    def layer_add_maxout(self,features=1024):
+        self.layers.append(MaxoutLayer(self.layers[-1].outputshape, features))
+        self.calculate_operations()
         
     def define_loss_function(self):
         """
@@ -343,3 +349,30 @@ class DropoutLayer(Layer):
                 inputs = input_layer,
                 rate = self.rate,
                 training = self.train )
+
+class MaxoutLayer(Layer):
+    
+    def __init__(self,inputshape,features):
+        super().__init__(inputshape,[features])
+        self.features = features
+    
+    def forward(self, input_layer):      
+        shape = input_layer.get_shape().as_list()
+        if shape[1] % self.features == 0:
+            return tf.transpose(tf.reduce_max(tf.split(input_layer,self.features,1),axis=2))
+        else:
+            raise ValueError("Output size or input tensor size is not fine. Please check it. Reminder need be zero.")
+            
+data = DataFile()
+data.augment_train()
+NN = Network(data)
+NN.layer_add_convolutional(16,3,3)
+NN.layer_add_pooling()
+NN.layer_add_convolutional(32,3,3)
+NN.layer_add_pooling()
+NN.layer_add_convolutional(48,3,3)
+NN.layer_add_pooling()
+NN.layer_add_flatten()
+NN.layer_add_dense(512)
+NN.layer_add_maxout()
+NN.layer_add_output()
