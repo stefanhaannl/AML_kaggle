@@ -10,7 +10,8 @@ import os
 
 class DataFile():
     
-    def __init__(self,n=0):
+    def __init__(self,n=0,size=(64,64)):
+        self.size = size
         self.traindata, self.trainlabels, self.testdata, self.testlabels = self.load_data(n)
         self.inputdimension = list(self.traindata.shape)
         self.outputdimension = list(self.trainlabels.shape)
@@ -19,8 +20,7 @@ class DataFile():
         del self.template['class']
         
     def load_data(self,n=0,train=True):
-        df, template = preprocessing.load_images(n,train)
-        df = preprocessing.resize_images(df)
+        df, template = preprocessing.load_images(n,train,self.size)
         if train == True:
             df = preprocessing.add_labels(df)
             df = preprocessing.add_label_hotmap(df)
@@ -33,6 +33,13 @@ class DataFile():
             names = np.array(list(df['image_number']))
             x_train = np.swapaxes(np.dstack(np.array(x_train)),0,2)
             return x_train, template, names
+        
+    def augment_train(self):
+        print("Augmenting the traindata...")
+        self.traindata, self.trainlabels = preprocessing.get_augment(self.traindata,self.trainlabels,3,self.traindata.shape[0])
+#        self.testdata, self.testlabels = preprocessing.get_augment(self.testdata,self.testlabels,1,self.testdata.shape[0])
+        self.traindata = self.traindata[:,:,:,0]
+#        self.testdata = self.testdata[:,:,:,0]
     
     def get_batch(self,batchsize):
         ind = np.random.randint(self.traindata.shape[0],size=batchsize)
@@ -63,7 +70,7 @@ class Network():
         self.set_parameters()
         self.initialize_structure()
         
-    def set_parameters(self,session_steps=2000,batch_size=50,learning_rate=0.002):
+    def set_parameters(self,session_steps=10000,batch_size=50,learning_rate=0.002):
         """
         Variables:
             session_steps: (default:5000)
@@ -177,6 +184,10 @@ class Network():
             self.calculate_operations()
         else:
             print("An output layer requires flattening first!")
+    
+    def layer_add_maxout(self,features=1024):
+        self.layers.append(MaxoutLayer(self.layers[-1].outputshape, features))
+        self.calculate_operations()
         
     def define_loss_function(self):
         """
@@ -323,12 +334,11 @@ class DenseLayer(Layer):
                 units = self.nodes,
                 activation = self.transfer_func)
 
-
 class DropoutLayer(Layer):
     
     def __init__(self,inputshape,rate,train):
         super().__init__(inputshape,inputshape)
-        self.rate = 0.5
+        self.rate = rate
         self.train = train
     
     def forward(self,input_layer):
@@ -336,12 +346,17 @@ class DropoutLayer(Layer):
                 inputs = input_layer,
                 rate = self.rate,
                 training = self.train )
+
+class MaxoutLayer(Layer):
+    
+    def __init__(self,inputshape,features):
+        super().__init__(inputshape,[features])
+        self.features = features
+    
+    def forward(self, input_layer):      
+        shape = input_layer.get_shape().as_list()
+        if shape[1] % self.features == 0:
+            return tf.transpose(tf.reduce_max(tf.split(input_layer,self.features,1),axis=2))
+        else:
+            raise ValueError("Output size or input tensor size is not fine. Please check it. Reminder need be zero.")
         
-NN = Network(data)
-NN.layer_add_convolutional()
-NN.layer_add_pooling()
-NN.layer_add_flatten()
-NN.layer_add_dropout()
-NN.layer_add_dense()
-NN.layer_add_dropout()
-NN.layer_add_output()
