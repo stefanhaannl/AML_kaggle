@@ -7,6 +7,7 @@ import os
 from PIL import Image
 from sklearn.model_selection import train_test_split
 from keras.preprocessing.image import ImageDataGenerator
+from scipy.misc import imresize
 
 WORKING_PATH = os.path.dirname(os.path.abspath(__file__))
 DATA_PATH = os.path.join(WORKING_PATH,'data')
@@ -20,7 +21,7 @@ REQUIRED PART
 ###############################################################################
 """
 
-def load_images(n=0, train=True, size=(64,64)):
+def load_images(size, n=0, train=True):
     """
     Import either test or training images into a pd.dataframe object of np.arrays (images) and image numbers
     [] -> [image_data, image_number]
@@ -34,24 +35,9 @@ def load_images(n=0, train=True, size=(64,64)):
         path = TEST_PATH
     for filename in os.listdir(path):
         im = Image.open(os.path.join(path,filename))
-        im.thumbnail(size, Image.ANTIALIAS)
         x = np.array([np.array(im)])
         gray = x[0,:,:] 
-        old_size = gray.shape
-        if (size[0]-old_size[0]) % 2 == 0:
-            pad1 = int((size[0]-old_size[0])/2)
-            pad2 = pad1
-        else:
-            pad1 = int(np.floor((size[0]-old_size[0])/2))
-            pad2 = pad1+1
-        if (size[1]-old_size[1]) % 2 == 0:
-            pad3 = int((size[1]-old_size[1])/2)
-            pad4 = pad3
-        else:
-            pad3 = int(np.floor((size[1]-old_size[1])/2))
-            pad4 = pad3+1
-        newimg = np.lib.pad(gray,((pad1,pad2),(pad3,pad4)),mode='constant',constant_values = ((255,255),(255,255)))
-        im_list.append(newimg.astype(np.float32))
+        im_list.append(gray.astype(np.float32))
         id_im = int(filename.split('.')[0])
         label_list.append(id_im)
         n-=1
@@ -61,11 +47,37 @@ def load_images(n=0, train=True, size=(64,64)):
         template = pd.read_csv(os.path.join(DATA_PATH, 'sample.csv'))
     data_dict = {"image_data":im_list,"image_number":label_list}
     df = pd.DataFrame(data_dict)
-    df['image_data'] = df['image_data'].apply(lambda x: x/x.max())
+    df['image_data'] = df['image_data'].apply(lambda x: pad_image(size,x))
+    df['image_data'] = df['image_data'].apply(lambda x: 1-(x/x.max()))
     if train == True:
-        return df,1 
+        return df,1
     else:
         return df, template
+    
+def pad_image(new_size,img):
+    ratio = 1.5
+    old_size = img.shape
+    firstresize = [1.0,1.0]
+    if old_size[0] > new_size[0]*ratio:
+        firstresize[0] = new_size[0]*ratio/old_size[0]
+    if old_size[1] > new_size[1]*ratio:
+        firstresize[1] = new_size[1]*ratio/old_size[1]
+    cropped_im = imresize(img,min(firstresize))
+    size = cropped_im.shape
+    if (new_size[0]*ratio-size[0]) % 2 == 0:
+        pad1 = int((new_size[0]*ratio-size[0])/2)
+        pad2 = pad1
+    else:
+        pad1 = int(np.floor((new_size[0]*ratio-size[0])/2))
+        pad2 = pad1+1
+    if (new_size[1]*ratio-size[1]) % 2 == 0:
+        pad3 = int((new_size[1]*ratio-size[1])/2)
+        pad4 = pad3
+    else:
+        pad3 = int(np.floor((new_size[1]*ratio-size[1])/2))
+        pad4 = pad3+1
+    im = np.lib.pad(cropped_im,((pad1,pad2),(pad3,pad4)),mode='constant',constant_values = ((255,255),(255,255)))
+    return imresize(im,new_size)
     
 def resize_images(images):
     return images
@@ -132,7 +144,12 @@ KERAS
 
 def get_augment(x_train, y_train, max_loops, batch_size):
     x_train = x_train.reshape(x_train.shape[0],x_train.shape[1],x_train.shape[2],1)
-    datagen = ImageDataGenerator(rotation_range =  180, horizontal_flip= True, vertical_flip = True, fill_mode='nearest')
+    datagen = ImageDataGenerator(rotation_range =  360, horizontal_flip= True, vertical_flip = True, fill_mode='nearest',
+                                 width_shift_range=0.1,
+                                 height_shift_range=0.1,
+                                 zoom_range=[1/1.6,1.6],
+                                 shear_range=0.35,
+                                 )
     datagen.fit(x_train)
     cur_loop = 0
     output_x = x_train

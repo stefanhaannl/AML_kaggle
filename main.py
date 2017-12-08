@@ -10,17 +10,17 @@ import os
 
 class DataFile():
     
-    def __init__(self,n=0,size=(64,64)):
+    def __init__(self,n=0,size=(96,96)):
+        self.traindata, self.trainlabels, self.testdata, self.testlabels = self.load_data(size=size)
         self.size = size
-        self.traindata, self.trainlabels, self.testdata, self.testlabels = self.load_data(n)
         self.inputdimension = list(self.traindata.shape)
         self.outputdimension = list(self.trainlabels.shape)
         self.n_labels = self.outputdimension[1]
-        self.evaldata, self.template, self.names = self.load_data(n,False)
+        self.evaldata, self.template, self.names = self.load_data(self.size,n,False)
         del self.template['class']
         
-    def load_data(self,n=0,train=True):
-        df, template = preprocessing.load_images(n,train,self.size)
+    def load_data(self,size,n=0,train=True):
+        df, template = preprocessing.load_images(size,n,train)
         if train == True:
             df = preprocessing.add_labels(df)
             df = preprocessing.add_label_hotmap(df)
@@ -36,7 +36,7 @@ class DataFile():
         
     def augment_train(self):
         print("Augmenting the traindata...")
-        self.traindata, self.trainlabels = preprocessing.get_augment(self.traindata,self.trainlabels,3,self.traindata.shape[0])
+        self.traindata, self.trainlabels = preprocessing.get_augment(self.traindata,self.trainlabels,2,self.traindata.shape[0])
 #        self.testdata, self.testlabels = preprocessing.get_augment(self.testdata,self.testlabels,1,self.testdata.shape[0])
         self.traindata = self.traindata[:,:,:,0]
 #        self.testdata = self.testdata[:,:,:,0]
@@ -70,7 +70,7 @@ class Network():
         self.set_parameters()
         self.initialize_structure()
         
-    def set_parameters(self,session_steps=10000,batch_size=50,learning_rate=0.001):
+    def set_parameters(self,session_steps=5000,batch_size=50,learning_rate=0.005):
         """
         Variables:
             session_steps: (default:5000)
@@ -209,26 +209,30 @@ class Network():
             x = np.linspace(0,self.session_steps/100,self.session_steps/100)
             y = []
             y2 = []
-            for step in range(self.session_steps):
-                batch_x, batch_y = self.datafile.get_batch(self.batch_size)
-                sess.run(self.trainer,feed_dict = {self.x:batch_x, self.y_true:batch_y, self.train_mode:True})
-                if step%100 == 0:
-                    print("Running step", step, "/",self.session_steps)
-                    #TEST DATA PREDICTION
-                    correct_prediction = tf.equal(tf.argmax(self.y,1), tf.argmax(self.y_true,1))
-                    accuracy = tf.reduce_mean(tf.cast(correct_prediction,tf.float32))
-                    feed_x, feed_y = self.datafile.get_testbatch(1000)
-                    accuracy_test = sess.run(accuracy,feed_dict={self.x:feed_x,self.y_true:feed_y,self.train_mode:False})
-                    y.append(accuracy_test)
-                    #TRAIN DATA PREDICTION
-                    feed_x, feed_y = self.datafile.get_batch(1000)
-                    correct_prediction = tf.equal(tf.argmax(self.y,1), tf.argmax(self.y_true,1))
-                    accuracy = tf.reduce_mean(tf.cast(correct_prediction,tf.float32))
-                    accuracy_train = sess.run(accuracy,feed_dict={self.x:feed_x,self.y_true:feed_y,self.train_mode:False})
-                    y2.append(accuracy_train)
-                    print('Training Accuracy:',accuracy_train)
-                    print('Testing Accuracy:',accuracy_test)
-                    print('\n')
+            try:
+                for step in range(self.session_steps):
+                    batch_x, batch_y = self.datafile.get_batch(self.batch_size)
+                    sess.run(self.trainer,feed_dict = {self.x:batch_x, self.y_true:batch_y, self.train_mode:True})
+                    if step%100 == 0:
+                        print("Running step", step, "/",self.session_steps)
+                        #TEST DATA PREDICTION
+                        correct_prediction = tf.equal(tf.argmax(self.y,1), tf.argmax(self.y_true,1))
+                        accuracy = tf.reduce_mean(tf.cast(correct_prediction,tf.float32))
+                        feed_x, feed_y = self.datafile.get_testbatch(1000)
+                        accuracy_test = sess.run(accuracy,feed_dict={self.x:feed_x,self.y_true:feed_y,self.train_mode:False})
+                        y.append(accuracy_test)
+                        #TRAIN DATA PREDICTION
+                        feed_x, feed_y = self.datafile.get_batch(1000)
+                        correct_prediction = tf.equal(tf.argmax(self.y,1), tf.argmax(self.y_true,1))
+                        accuracy = tf.reduce_mean(tf.cast(correct_prediction,tf.float32))
+                        accuracy_train = sess.run(accuracy,feed_dict={self.x:feed_x,self.y_true:feed_y,self.train_mode:False})
+                        y2.append(accuracy_train)
+                        print('Training Accuracy:',accuracy_train)
+                        print('Testing Accuracy:',accuracy_test)
+                        print('\n')
+            except KeyboardInterrupt:
+                pass
+                
             print('Applying the model on the evaluatation data...')
             labels = sess.run(tf.argmax(self.y,axis=1), feed_dict={self.x:self.datafile.evaldata,self.train_mode:False})
             self.evaluated_data = labels
@@ -362,10 +366,12 @@ class MaxoutLayer(Layer):
             return tf.transpose(tf.reduce_max(tf.split(input_layer,self.features,1),axis=2))
         else:
             raise ValueError("Output size or input tensor size is not fine. Please check it. Reminder need be zero.")
-            
+
+
 data = DataFile()
 data.augment_train()
 NN = Network(data)
+NN.set_parameters(session_steps=5000,batch_size=50,learning_rate=0.001)
 NN.layer_add_convolutional(16,3,3)
 NN.layer_add_pooling()
 NN.layer_add_convolutional(32,3,3)
@@ -374,5 +380,5 @@ NN.layer_add_convolutional(48,3,3)
 NN.layer_add_pooling()
 NN.layer_add_flatten()
 NN.layer_add_dense(512)
-NN.layer_add_maxout()
 NN.layer_add_output()
+NN.train()
