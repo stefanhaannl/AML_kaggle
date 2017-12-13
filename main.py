@@ -8,15 +8,18 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import os
 
+def lrelu(x):
+  return tf.nn.relu(x) - 0.2 * tf.nn.relu(-x)
+
 class DataFile():
     
     def __init__(self,n=0,size=(96,96)):
-        self.traindata, self.trainlabels, self.testdata, self.testlabels = self.load_data(size=size)
+        self.traindata, self.adtraindata, self.trainlabels, self.testdata, self.adtestdata, self.testlabels = self.load_data(size=size)
         self.size = size
         self.inputdimension = list(self.traindata.shape)
         self.outputdimension = list(self.trainlabels.shape)
         self.n_labels = self.outputdimension[1]
-        self.evaldata, self.template, self.names = self.load_data(self.size,n,False)
+        self.evaldata, self.template, self.names, self.evaladdata = self.load_data(self.size,n,False)
         del self.template['class']
         
     def load_data(self,size,n=0,train=True):
@@ -24,34 +27,40 @@ class DataFile():
         if train == True:
             df = preprocessing.add_labels(df)
             df = preprocessing.add_label_hotmap(df)
-            x_train, x_test, y_train, y_test = preprocessing.split_data(df)
+            x_train, x_test, y_train, y_test, ad_train, ad_test = preprocessing.split_data(df)
             x_train = np.swapaxes(np.dstack(np.array(x_train)),0,2)
             x_test = np.swapaxes(np.dstack(np.array(x_test)),0,2)
-            return x_train, np.array(list(y_train)), x_test, np.array(list(y_test))
+            return x_train, ad_train.as_matrix(), np.array(list(y_train)), x_test, ad_test.as_matrix(), np.array(list(y_test))
         else:
             x_train = df['image_data']
             names = np.array(list(df['image_number']))
             x_train = np.swapaxes(np.dstack(np.array(x_train)),0,2)
-            return x_train, template, names
+            return x_train, template, names, df[['W','H']].as_matrix()
         
-    def augment_train(self):
+    def augment_train(self,factor=2):
         print("Augmenting the traindata...")
-        self.traindata, self.trainlabels = preprocessing.get_augment(self.traindata,self.trainlabels,2,self.traindata.shape[0])
+        self.traindata, self.trainlabels = preprocessing.get_augment(self.traindata,self.trainlabels,factor,self.traindata.shape[0])
 #        self.testdata, self.testlabels = preprocessing.get_augment(self.testdata,self.testlabels,1,self.testdata.shape[0])
         self.traindata = self.traindata[:,:,:,0]
+        copy = self.adtraindata[:,:]
+        for num in range(factor):
+            self.adtraindata = np.concatenate((self.adtraindata,copy),axis=0)
 #        self.testdata = self.testdata[:,:,:,0]
     
     def get_batch(self,batchsize):
         ind = np.random.randint(self.traindata.shape[0],size=batchsize)
+        print(ind)
         batch_x = self.traindata[ind,:]
         batch_y = self.trainlabels[ind,:]
-        return batch_x, batch_y
+        batch_ad = self.adtraindata[ind,:]
+        return batch_x, batch_y, batch_ad
     
     def get_testbatch(self,batchsize):
         ind = np.random.randint(self.testdata.shape[0],size=batchsize)
         batch_x = self.testdata[ind,:]
         batch_y = self.testlabels[ind,:]
-        return batch_x, batch_y
+        batch_ad = self.adtestdata[ind,:]
+        return batch_x, batch_y, batch_ad
 
 
 class Network():
@@ -86,6 +95,7 @@ class Network():
         Creates a list of layers where all layers of the model are saved. Also adds a default output layer.
         """
         self.x = tf.placeholder(tf.float32,[None]+self.datafile.inputdimension[1:])
+        self.ad_data = tf.placeholder(tf.float32,[None]+list(self.datafile.adtraindata.shape[1:]))
         self.y_true = tf.placeholder(tf.float32,[None]+self.datafile.outputdimension[1:])
         self.train_mode = tf.placeholder(tf.bool)
         self.hold_prob = tf.placeholder(tf.float32)
@@ -182,7 +192,7 @@ class Network():
         
     def layer_add_output(self):
         if len(self.layers[-1].outputshape) == 1:
-            self.layers.append(Layer(self.layers[-1].outputshape,[self.datafile.outputdimension[1]]))
+            self.layers.append(OutputLayer(self.layers[-1].outputshape,[self.datafile.outputdimension[1]],self.ad_data))
             self.calculate_operations()
         else:
             print("An output layer requires flattening first!")
@@ -198,7 +208,7 @@ class Network():
         cross_entropy = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.y_true,logits=self.y))
         optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate)
         self.trainer = optimizer.minimize(cross_entropy)
-    
+
     def train(self):
         """
         Train the current model and evaluate it on the testing data split.
@@ -211,21 +221,21 @@ class Network():
             y2 = []
             try:
                 for step in range(self.session_steps):
-                    batch_x, batch_y = self.datafile.get_batch(self.batch_size)
-                    sess.run(self.trainer,feed_dict = {self.x:batch_x, self.y_true:batch_y, self.train_mode:True})
+                    batch_x, batch_y, batch_ad = self.datafile.get_batch(self.batch_size)
+                    sess.run(self.trainer,feed_dict = {self.x:batch_x, self.y_true:batch_y, self.train_mode:True, self.ad_data:batch_ad})
                     if step%100 == 0:
                         print("Running step", step, "/",self.session_steps)
                         #TEST DATA PREDICTION
                         correct_prediction = tf.equal(tf.argmax(self.y,1), tf.argmax(self.y_true,1))
                         accuracy = tf.reduce_mean(tf.cast(correct_prediction,tf.float32))
-                        feed_x, feed_y = self.datafile.get_testbatch(1000)
-                        accuracy_test = sess.run(accuracy,feed_dict={self.x:feed_x,self.y_true:feed_y,self.train_mode:False})
+                        feed_x, feed_y, feed_ad = self.datafile.get_testbatch(1000)
+                        accuracy_test = sess.run(accuracy,feed_dict={self.x:feed_x,self.y_true:feed_y,self.train_mode:False, self.ad_data:feed_ad})
                         y.append(accuracy_test)
                         #TRAIN DATA PREDICTION
-                        feed_x, feed_y = self.datafile.get_batch(1000)
+                        feed_x, feed_y, feed_ad = self.datafile.get_batch(1000)
                         correct_prediction = tf.equal(tf.argmax(self.y,1), tf.argmax(self.y_true,1))
                         accuracy = tf.reduce_mean(tf.cast(correct_prediction,tf.float32))
-                        accuracy_train = sess.run(accuracy,feed_dict={self.x:feed_x,self.y_true:feed_y,self.train_mode:False})
+                        accuracy_train = sess.run(accuracy,feed_dict={self.x:feed_x,self.y_true:feed_y,self.train_mode:False, self.ad_data:feed_ad})
                         y2.append(accuracy_train)
                         print('Training Accuracy:',accuracy_train)
                         print('Testing Accuracy:',accuracy_test)
@@ -234,7 +244,7 @@ class Network():
                 pass
                 
             print('Applying the model on the evaluatation data...')
-            labels = sess.run(tf.argmax(self.y,axis=1), feed_dict={self.x:self.datafile.evaldata,self.train_mode:False})
+            labels = sess.run(tf.argmax(self.y,axis=1), feed_dict={self.x:self.datafile.evaldata,self.train_mode:False, self.ad_data:self.datafile.evaladdata})
             self.evaluated_data = labels
             print("Done!")
         y = np.array(y)
@@ -267,11 +277,6 @@ class Layer():
     def __init__(self, inputshape, outputshape):
         self.inputshape = inputshape
         self.outputshape = outputshape
-    
-    def forward(self,input_layer):
-        return tf.layers.dense(
-                inputs = input_layer,
-                units = self.outputshape[0])
 
 class InputLayer(Layer):
     
@@ -283,6 +288,17 @@ class InputLayer(Layer):
         return tf.reshape(input_layer,[-1]+self.outputshape)
     
     
+class OutputLayer(Layer):
+    
+    def __init__(self,inputshape,outputshape,ad_data):
+        super().__init__(inputshape,outputshape)
+        self.ad_data = ad_data
+        
+    def forward(self,input_layer):
+        return tf.layers.dense(
+                inputs = tf.concat([input_layer,self.ad_data],1),
+                units = self.outputshape[0])
+        
 class ConvLayer(Layer):
     
     def __init__(self,inputshape,channels,size,transfer_func):
@@ -367,18 +383,18 @@ class MaxoutLayer(Layer):
         else:
             raise ValueError("Output size or input tensor size is not fine. Please check it. Reminder need be zero.")
 
-
-data = DataFile()
-data.augment_train()
-NN = Network(data)
-NN.set_parameters(session_steps=5000,batch_size=50,learning_rate=0.001)
-NN.layer_add_convolutional(16,3,3)
-NN.layer_add_pooling()
-NN.layer_add_convolutional(32,3,3)
-NN.layer_add_pooling()
-NN.layer_add_convolutional(48,3,3)
-NN.layer_add_pooling()
-NN.layer_add_flatten()
-NN.layer_add_dense(512)
-NN.layer_add_output()
-NN.train()
+#data = DataFile()
+#data.augment_train(3)
+#NN = Network(data)
+#NN.set_parameters(session_steps=200000,batch_size=50,learning_rate=0.003)
+#NN.layer_add_convolutional(16,3,3)
+#NN.layer_add_pooling()
+#NN.layer_add_convolutional(32,3,3)
+#NN.layer_add_pooling()
+#NN.layer_add_convolutional(48,3,3)
+#NN.layer_add_pooling()
+#NN.layer_add_flatten()
+#NN.layer_add_dense()
+#NN.layer_add_dropout()
+#NN.layer_add_output()
+#NN.train()

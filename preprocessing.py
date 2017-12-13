@@ -47,6 +47,7 @@ def load_images(size, n=0, train=True):
         template = pd.read_csv(os.path.join(DATA_PATH, 'sample.csv'))
     data_dict = {"image_data":im_list,"image_number":label_list}
     df = pd.DataFrame(data_dict)
+    df = get_additional_features(df)
     df['image_data'] = df['image_data'].apply(lambda x: pad_image(size,x))
     df['image_data'] = df['image_data'].apply(lambda x: 1-(x/x.max()))
     if train == True:
@@ -94,6 +95,14 @@ def add_labels(images):
     required_labels = labels[labels.image_number.isin(list(images['image_number']))]
     return pd.merge(images,required_labels,on='image_number')
 
+def get_additional_features(df):
+    #Image size
+    df['W'] = df['image_data'].apply(lambda x:x.shape[0])
+    df['H'] = df['image_data'].apply(lambda x:x.shape[1])
+    df['W'] = df['W'].apply(lambda x:x/df['W'].max())
+    df['H'] = df['H'].apply(lambda x:x/df['H'].max())
+    return df
+    
 """
 ###############################################################################
 OPTIONAL PART
@@ -132,9 +141,11 @@ def split_data(images, p = 0.3):
     Split the datafram into x_train, x_test, y_train, y_test
     """
     x_data = images['image_data']
+    ad_data = images[['W','H']]
     labels = images['class_hotmap']
     x_train, x_test, y_train, y_test = train_test_split(x_data, labels, test_size=p)
-    return x_train, x_test, y_train, y_test
+    ad_train, ad_test, a, b = train_test_split(ad_data, labels, test_size=p)
+    return x_train, x_test, y_train, y_test, ad_train, ad_test
 
 """
 ###############################################################################
